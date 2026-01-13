@@ -1,0 +1,275 @@
+import Foundation
+
+/// Protocol defining the interface for Instax printers.
+public protocol InstaxPrinter: Actor {
+  /// The printer model.
+  var model: PrinterModel { get }
+
+  /// The host address.
+  var host: String { get }
+
+  /// The port number.
+  var port: UInt16 { get }
+
+  /// The PIN code.
+  var pinCode: UInt16 { get }
+
+  /// Get printer information.
+  func getInfo() async throws -> PrinterInfo
+
+  /// Print an image from a URL.
+  func print(imageAt url: URL, progress: @escaping @Sendable (PrintProgress) -> Void) async throws
+
+  /// Print an image from raw encoded bytes.
+  func print(encodedImage: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws
+}
+
+/// Base implementation shared between SP2 and SP3.
+/// This is a class (not actor) because it's only accessed from within SP2/SP3 actors.
+final class InstaxPrinterBase: @unchecked Sendable {
+  let model: PrinterModel
+  let host: String
+  let port: UInt16
+  let pinCode: UInt16
+
+  private let encoder = PacketEncoder()
+  private let decoder = PacketDecoder()
+  private var connection: SocketConnection?
+  private var sessionTime: UInt32
+
+  init(model: PrinterModel, host: String, port: UInt16, pinCode: UInt16) {
+    self.model = model
+    self.host = host
+    self.port = port
+    self.pinCode = pinCode
+    // Truncate to UInt32 range (the & 0xFFFFFFFF must happen before conversion)
+    let timeMs = UInt64(Date().timeIntervalSince1970 * 1000)
+    sessionTime = UInt32(timeMs & 0xFFFF_FFFF)
+  }
+
+  func connect(timeout: TimeInterval = 10) async throws {
+    let conn = SocketConnection(host: host, port: port)
+    try await conn.connect(timeout: timeout)
+    connection = conn
+  }
+
+  func close() async {
+    await connection?.close()
+    connection = nil
+  }
+
+  func sendCommand(type: PacketType, payload: Data = Data()) async throws -> DecodedPacket {
+    guard let connection else {
+      debugLog("sendCommand failed: not connected")
+      throw ConnectionError.notConnected
+    }
+
+    debugLog("Sending command: \(type)")
+
+    let commandData = encoder.encodeCommand(
+      type: type,
+      sessionTime: sessionTime,
+      pinCode: pinCode,
+      payload: payload
+    )
+
+    try await connection.send(commandData)
+    let responseData = try await connection.receive()
+
+    do {
+      let decoded = try decoder.decode(responseData)
+      debugLog(
+        "Response: type=\(decoded.header.type), returnCode=\(decoded.header.returnCode?.description ?? "nil"), battery=\(decoded.header.battery), prints=\(decoded.header.printsRemaining)"
+      )
+      return decoded
+    } catch {
+      debugLog("Failed to decode response: \(error)")
+      throw error
+    }
+  }
+
+  func getPrinterVersion() async throws -> DecodedPacket {
+    try await sendCommand(type: .printerVersion)
+  }
+
+  func getModelName() async throws -> DecodedPacket {
+    try await sendCommand(type: .modelName)
+  }
+
+  func getPrintCount() async throws -> DecodedPacket {
+    try await sendCommand(type: .printCount)
+  }
+
+  func getSpecifications() async throws -> DecodedPacket {
+    try await sendCommand(type: .specifications)
+  }
+
+  func sendPrePrint(number: UInt16) async throws -> DecodedPacket {
+    let payload = PrePrintPayload(commandNumber: number)
+    return try await sendCommand(type: .prePrint, payload: payload.encode())
+  }
+
+  func sendLock(state: UInt8) async throws -> DecodedPacket {
+    let payload = LockPayload(lockState: state)
+    return try await sendCommand(type: .lockDevice, payload: payload.encode())
+  }
+
+  func sendReset() async throws -> DecodedPacket {
+    try await sendCommand(type: .reset)
+  }
+
+  func sendPrepImage(length: UInt32) async throws -> DecodedPacket {
+    let payload = PrepImagePayload(imageLength: length)
+    return try await sendCommand(type: .prepImage, payload: payload.encode())
+  }
+
+  func sendImageSegment(sequence: UInt32, data: Data) async throws -> DecodedPacket {
+    let payload = SendImagePayload(sequenceNumber: sequence, imageData: data)
+    return try await sendCommand(type: .sendImage, payload: payload.encode())
+  }
+
+  func sendType83() async throws -> DecodedPacket {
+    try await sendCommand(type: .type83)
+  }
+
+  func sendType195() async throws -> DecodedPacket {
+    try await sendCommand(type: .type195)
+  }
+
+  func sendLockState() async throws -> DecodedPacket {
+    try await sendCommand(type: .setLockState)
+  }
+
+  func getInfo() async throws -> PrinterInfo {
+    debugLog("getInfo() called")
+    debugLog("Attempting to connect...")
+
+    try await connect()
+    debugLog("Connected successfully")
+
+    defer {
+      debugLog("Closing connection in defer")
+      Task { await close() }
+    }
+
+    debugLog("Getting printer version...")
+    let version = try await getPrinterVersion()
+
+    debugLog("Getting model name...")
+    let modelName = try await getModelName()
+
+    debugLog("Getting specifications...")
+    let specs = try await getSpecifications()
+
+    debugLog("Getting print count...")
+    let printCount = try await getPrintCount()
+
+    debugLog("Decoding payloads...")
+    let versionPayload = try version.decodePayload(VersionPayload.self)
+    let modelPayload = try modelName.decodePayload(ModelNamePayload.self)
+    let specsPayload = try specs.decodePayload(SpecificationsPayload.self)
+    let countPayload = try printCount.decodePayload(PrintCountPayload.self)
+
+    debugLog("Building PrinterInfo...")
+    return PrinterInfo(
+      modelName: modelPayload.modelName,
+      firmware: versionPayload.firmware,
+      hardware: versionPayload.hardware,
+      battery: version.header.battery,
+      printsRemaining: version.header.printsRemaining,
+      totalPrints: countPayload.printHistory,
+      maxWidth: specsPayload.maxWidth,
+      maxHeight: specsPayload.maxHeight
+    )
+  }
+
+  func printImage(encodedData: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
+    let segmentSize = 60000
+    let totalSegments = model.segmentCount
+
+    // Phase 1: Send pre-print commands
+    progress(PrintProgress(stage: .connecting, percentage: 0, message: "Connecting to printer..."))
+    try await connect()
+
+    progress(PrintProgress(stage: .sendingPrePrint, percentage: 10, message: "Sending pre-print commands..."))
+    for i in 1 ... 8 {
+      _ = try await sendPrePrint(number: UInt16(i))
+    }
+    await close()
+
+    // Phase 2: Lock printer
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    try await connect()
+    progress(PrintProgress(stage: .locking, percentage: 20, message: "Locking printer..."))
+    _ = try await sendLock(state: 1)
+    await close()
+
+    // Phase 3: Reset printer
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    try await connect()
+    progress(PrintProgress(stage: .resetting, percentage: 30, message: "Resetting printer..."))
+    _ = try await sendReset()
+    await close()
+
+    // Phase 4: Send image
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    try await connect()
+    progress(PrintProgress(stage: .preparingImage, percentage: 40, message: "Preparing image..."))
+    _ = try await sendPrepImage(length: UInt32(encodedData.count))
+
+    for segment in 0 ..< totalSegments {
+      let start = segment * segmentSize
+      let end = min(start + segmentSize, encodedData.count)
+      let segmentData = encodedData[start ..< end]
+
+      let percentage = 40 + (segment * 30 / totalSegments)
+      progress(PrintProgress(
+        stage: .sendingImage(segment: segment + 1, total: totalSegments),
+        percentage: percentage,
+        message: "Sending image segment \(segment + 1)/\(totalSegments)..."
+      ))
+
+      _ = try await sendImageSegment(sequence: UInt32(segment), data: Data(segmentData))
+    }
+
+    progress(PrintProgress(stage: .initiatingPrint, percentage: 70, message: "Initiating print..."))
+    _ = try await sendType83()
+    await close()
+
+    // Phase 5: Wait for print to complete
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    try await connect()
+    _ = try await sendLockState()
+    _ = try await getPrinterVersion()
+    _ = try await getModelName()
+
+    progress(PrintProgress(stage: .waitingForPrint, percentage: 90, message: "Waiting for print..."))
+    let success = try await waitForPrintComplete(timeout: 30)
+    await close()
+
+    if success {
+      progress(PrintProgress(stage: .complete, percentage: 100, message: "Print complete!"))
+    } else {
+      progress(PrintProgress(stage: .error("Timed out"), percentage: 100, message: "Print timed out"))
+      throw PrintError.timeout
+    }
+  }
+
+  private func waitForPrintComplete(timeout: Int) async throws -> Bool {
+    for _ in 0 ..< timeout {
+      let status = try await sendType195()
+      if status.header.returnCode == .ready {
+        return true
+      }
+      try await Task.sleep(nanoseconds: 1_000_000_000)
+    }
+    return false
+  }
+}
+
+/// Print-related errors.
+public enum PrintError: Error, Sendable {
+  case timeout
+  case printerError(ResponseCode)
+  case encodingFailed
+}

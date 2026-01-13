@@ -1,0 +1,18 @@
+# SwiftFormat config for InstaxKit
+
+# Swift version
+--swiftversion 5.9
+
+# Formatting options
+--indent 2
+--indentcase false
+--trimwhitespace always
+--stripunusedargs closure-only
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+
+# Exclude build artifacts
+--exclude .build
+--exclude .swiftpm
