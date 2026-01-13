@@ -34,14 +34,10 @@ public actor SocketConnection {
     self.connection = connection
 
     return try await withCheckedThrowingContinuation { continuation in
-      var didComplete = false
-      let completionLock = NSLock()
+      let completionState = CompletionState()
 
-      func complete(with result: Result<Void, Error>) {
-        completionLock.lock()
-        defer { completionLock.unlock() }
-        guard !didComplete else { return }
-        didComplete = true
+      @Sendable func complete(with result: Result<Void, Error>) {
+        guard completionState.tryComplete() else { return }
 
         switch result {
         case .success:
@@ -135,14 +131,10 @@ public actor SocketConnection {
 
   private func receiveExact(_ length: Int, from connection: NWConnection, timeout: TimeInterval) async throws -> Data {
     try await withCheckedThrowingContinuation { continuation in
-      var didComplete = false
-      let completionLock = NSLock()
+      let completionState = CompletionState()
 
-      func complete(with result: Result<Data, Error>) {
-        completionLock.lock()
-        defer { completionLock.unlock() }
-        guard !didComplete else { return }
-        didComplete = true
+      @Sendable func complete(with result: Result<Data, Error>) {
+        guard completionState.tryComplete() else { return }
 
         switch result {
         case let .success(data):
@@ -171,14 +163,8 @@ public actor SocketConnection {
       // Timeout
       Task {
         try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-        completionLock.lock()
-        let shouldTimeout = !didComplete
-        completionLock.unlock()
-
-        if shouldTimeout {
-          debugLog("Receive timeout after \(timeout)s")
-          complete(with: .failure(ConnectionError.timeout))
-        }
+        debugLog("Receive timeout after \(timeout)s")
+        complete(with: .failure(ConnectionError.timeout))
       }
     }
   }
@@ -194,6 +180,21 @@ public actor SocketConnection {
   public var isConnected: Bool {
     guard let connection else { return false }
     return connection.state == .ready
+  }
+}
+
+/// Thread-safe completion state tracker for continuations.
+private final class CompletionState: @unchecked Sendable {
+  private let lock = NSLock()
+  private var didComplete = false
+
+  /// Attempts to mark as complete. Returns true if this is the first call, false otherwise.
+  func tryComplete() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !didComplete else { return false }
+    didComplete = true
+    return true
   }
 }
 
