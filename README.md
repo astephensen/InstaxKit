@@ -103,13 +103,13 @@ try await printer.print(imageAt: imageURL) { progress in
 import InstaxKit
 
 // SP-1 (480x640, JPEG encoding)
-let printer = SP1()
+let printer = InstaxPrinter(model: .sp1)
 
 // SP-2 (600x800)
-let printer = SP2()
+let printer = InstaxPrinter(model: .sp2)
 
 // SP-3 (800x800, square)
-let printer = SP3()
+let printer = InstaxPrinter(model: .sp3)
 
 try await printer.print(imageAt: imageURL) { progress in
   print("\(progress.percentage)% - \(progress.message)")
@@ -119,7 +119,7 @@ try await printer.print(imageAt: imageURL) { progress in
 ### Get printer status
 
 ```swift
-let printer = SP3(host: "192.168.0.251", pinCode: 1111)
+let printer = InstaxPrinter(model: .sp3, host: "192.168.0.251", pinCode: 1111)
 let info = try await printer.getInfo()
 
 print("Battery: \(info.batteryPercentage)%")
@@ -150,7 +150,7 @@ struct PrintView: View {
   }
 
   func printPhoto() async {
-    let printer = SP2()
+    let printer = InstaxPrinter(model: .sp2)
     do {
       try await printer.print(imageAt: photoURL) { update in
         Task { @MainActor in
@@ -168,7 +168,7 @@ struct PrintView: View {
 ### Print from CGImage
 
 ```swift
-let printer = SP2()
+let printer = InstaxPrinter(model: .sp2)
 let cgImage: CGImage = // ... your image
 
 try await printer.print(image: cgImage) { progress in

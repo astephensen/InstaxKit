@@ -47,7 +47,7 @@ struct PrintCommand: AsyncParsableCommand {
       throw ValidationError("Image file not found: \(imagePath)")
     }
 
-    let printerInstance: any InstaxPrinter
+    let printerInstance: InstaxPrinter
 
     if let printer, printer.lowercased() != "auto" {
       let model: PrinterModel
@@ -123,7 +123,7 @@ struct InfoCommand: AsyncParsableCommand {
       Logger.shared.isEnabled = true
     }
 
-    let printerInstance: any InstaxPrinter
+    let printerInstance: InstaxPrinter
 
     if let printer, printer.lowercased() != "auto" {
       let model: PrinterModel

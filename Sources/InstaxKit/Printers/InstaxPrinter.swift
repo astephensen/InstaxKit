@@ -1,31 +1,43 @@
 import Foundation
 
-/// Protocol defining the interface for Instax printers.
-public protocol InstaxPrinter: Actor {
-  /// The printer model.
-  var model: PrinterModel { get }
+/// Unified Instax printer interface supporting SP-1, SP-2, and SP-3 models.
+public actor InstaxPrinter {
+  public let model: PrinterModel
+  public let host: String
+  public let port: UInt16
+  public let pinCode: UInt16
 
-  /// The host address.
-  var host: String { get }
+  private let base: InstaxPrinterBase
+  private let imageEncoder: InstaxImageEncoder
 
-  /// The port number.
-  var port: UInt16 { get }
-
-  /// The PIN code.
-  var pinCode: UInt16 { get }
+  public init(model: PrinterModel, host: String = "192.168.0.251", port: UInt16 = 8080, pinCode: UInt16 = 1111) {
+    self.model = model
+    self.host = host
+    self.port = port
+    self.pinCode = pinCode
+    base = InstaxPrinterBase(model: model, host: host, port: port, pinCode: pinCode)
+    imageEncoder = InstaxImageEncoder(model: model)
+  }
 
   /// Get printer information.
-  func getInfo() async throws -> PrinterInfo
+  public func getInfo() async throws -> PrinterInfo {
+    try await base.getInfo()
+  }
 
   /// Print an image from a URL.
-  func print(imageAt url: URL, progress: @escaping @Sendable (PrintProgress) -> Void) async throws
+  public func print(imageAt url: URL, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
+    let encodedData = try imageEncoder.encode(from: url)
+    try await base.printImage(encodedData: encodedData, progress: progress)
+  }
 
   /// Print an image from raw encoded bytes.
-  func print(encodedImage: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws
+  public func print(encodedImage: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
+    try await base.printImage(encodedData: encodedImage, progress: progress)
+  }
 }
 
-/// Base implementation shared between SP2 and SP3.
-/// This is a class (not actor) because it's only accessed from within SP2/SP3 actors.
+/// Base implementation shared between printer models.
+/// This is a class (not actor) because it's only accessed from within InstaxPrinter actor.
 final class InstaxPrinterBase: @unchecked Sendable {
   let model: PrinterModel
   let host: String

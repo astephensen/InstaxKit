@@ -16,7 +16,7 @@ struct IntegrationTests {
 
   @Test(.disabled("Requires mock server running on localhost:8080"))
   func getPrinterInfo() async throws {
-    let printer = SP2(host: "127.0.0.1", port: 8080, pinCode: 1111)
+    let printer = InstaxPrinter(model: .sp2, host: "127.0.0.1", port: 8080, pinCode: 1111)
     let info = try await printer.getInfo()
 
     #expect(!info.modelName.isEmpty)
