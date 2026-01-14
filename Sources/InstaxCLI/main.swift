@@ -21,8 +21,8 @@ struct PrintCommand: AsyncParsableCommand {
   @Argument(help: "Path to the image file")
   var imagePath: String
 
-  @Option(name: .shortAndLong, help: "Printer model (sp2 or sp3)")
-  var printer: String = "sp2"
+  @Option(name: .shortAndLong, help: "Printer model (sp2, sp3, or auto)")
+  var printer: String?
 
   @Option(name: .long, help: "Printer IP address")
   var host: String = "192.168.0.251"
@@ -47,19 +47,26 @@ struct PrintCommand: AsyncParsableCommand {
       throw ValidationError("Image file not found: \(imagePath)")
     }
 
-    let model: PrinterModel
-    switch printer.lowercased() {
-    case "sp2", "2":
-      model = .sp2
-    case "sp3", "3":
-      model = .sp3
-    default:
-      throw ValidationError("Unknown printer model: \(printer). Use 'sp2' or 'sp3'.")
+    let printerInstance: any InstaxPrinter
+
+    if let printer, printer.lowercased() != "auto" {
+      let model: PrinterModel
+      switch printer.lowercased() {
+      case "sp2", "2":
+        model = .sp2
+      case "sp3", "3":
+        model = .sp3
+      default:
+        throw ValidationError("Unknown printer model: \(printer). Use 'sp2', 'sp3', or 'auto'.")
+      }
+      print("Printing to Instax \(printer.uppercased()) at \(host):\(port)")
+      printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
+    } else {
+      print("Auto-detecting printer at \(host):\(port)...")
+      printerInstance = try await InstaxKit.detectPrinter(host: host, port: port, pinCode: pin)
+      let info = try await printerInstance.getInfo()
+      print("Detected: \(info.modelName)")
     }
-
-    print("Printing to Instax \(printer.uppercased()) at \(host):\(port)")
-
-    let printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
 
     do {
       try await printerInstance.print(imageAt: imageURL) { progress in
@@ -94,8 +101,8 @@ struct InfoCommand: AsyncParsableCommand {
     abstract: "Get printer information"
   )
 
-  @Option(name: .shortAndLong, help: "Printer model (sp2 or sp3)")
-  var printer: String = "sp2"
+  @Option(name: .shortAndLong, help: "Printer model (sp2, sp3, or auto)")
+  var printer: String?
 
   @Option(name: .long, help: "Printer IP address")
   var host: String = "192.168.0.251"
@@ -114,19 +121,24 @@ struct InfoCommand: AsyncParsableCommand {
       Logger.shared.isEnabled = true
     }
 
-    let model: PrinterModel
-    switch printer.lowercased() {
-    case "sp2", "2":
-      model = .sp2
-    case "sp3", "3":
-      model = .sp3
-    default:
-      throw ValidationError("Unknown printer model: \(printer). Use 'sp2' or 'sp3'.")
+    let printerInstance: any InstaxPrinter
+
+    if let printer, printer.lowercased() != "auto" {
+      let model: PrinterModel
+      switch printer.lowercased() {
+      case "sp2", "2":
+        model = .sp2
+      case "sp3", "3":
+        model = .sp3
+      default:
+        throw ValidationError("Unknown printer model: \(printer). Use 'sp2', 'sp3', or 'auto'.")
+      }
+      print("Connecting to Instax \(printer.uppercased()) at \(host):\(port)...")
+      printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
+    } else {
+      print("Auto-detecting printer at \(host):\(port)...")
+      printerInstance = try await InstaxKit.detectPrinter(host: host, port: port, pinCode: pin)
     }
-
-    print("Connecting to Instax \(printer.uppercased()) at \(host):\(port)...")
-
-    let printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
 
     do {
       let info = try await printerInstance.getInfo()

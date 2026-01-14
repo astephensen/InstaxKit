@@ -38,14 +38,15 @@ The binary will be at `.build/release/instax`.
 ### Print an image
 
 ```bash
-# Print to SP-2 (default)
+# Auto-detect printer model (default)
 instax print photo.jpg
 
-# Print to SP-3
+# Specify printer model explicitly
+instax print photo.jpg --printer sp2
 instax print photo.jpg --printer sp3
 
 # With custom settings
-instax print photo.jpg --printer sp2 --host 192.168.0.251 --pin 1234
+instax print photo.jpg --host 192.168.0.251 --pin 1234
 
 # Rotate image 90 degrees clockwise
 instax print photo.jpg --rotate 90
@@ -57,10 +58,11 @@ instax print photo.jpg --verbose
 ### Get printer info
 
 ```bash
+# Auto-detect printer model
 instax info
 
-# With custom host
-instax info --host 192.168.0.251 --printer sp3
+# Specify printer model explicitly
+instax info --printer sp3 --host 192.168.0.251
 ```
 
 Example output:
@@ -79,6 +81,18 @@ Max Resolution:  600x800
 ## Library Usage
 
 InstaxKit is designed for easy integration into iOS and macOS apps.
+
+### Auto-detect printer model
+
+```swift
+import InstaxKit
+
+// Automatically detect SP-2 or SP-3
+let printer = try await InstaxKit.detectPrinter(host: "192.168.0.251")
+try await printer.print(imageAt: imageURL) { progress in
+  print("\(progress.percentage)% - \(progress.message)")
+}
+```
 
 ### Basic printing
 

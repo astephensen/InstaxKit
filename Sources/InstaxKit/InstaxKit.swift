@@ -35,4 +35,57 @@ public enum InstaxKit {
       SP3(host: host, port: port, pinCode: pinCode)
     }
   }
+
+  /// Auto-detect printer model and return appropriate instance.
+  public static func detectPrinter(
+    host: String = "192.168.0.251",
+    port: UInt16 = 8080,
+    pinCode: UInt16 = 1111
+  ) async throws -> any InstaxPrinter {
+    debugLog("Auto-detecting printer model at \(host):\(port)")
+
+    // Use a temporary base instance to query the printer
+    let base = InstaxPrinterBase(model: .sp2, host: host, port: port, pinCode: pinCode)
+
+    do {
+      try await base.connect()
+      defer {
+        Task { await base.close() }
+      }
+
+      let modelNamePacket = try await base.getModelName()
+      let modelPayload = try modelNamePacket.decodePayload(ModelNamePayload.self)
+
+      debugLog("Detected model: \(modelPayload.modelName)")
+
+      // Parse model name to determine type
+      let modelName = modelPayload.modelName.uppercased()
+      let detectedModel: PrinterModel
+      if modelName.contains("SP-2") || modelName.contains("SP2") {
+        detectedModel = .sp2
+      } else if modelName.contains("SP-3") || modelName.contains("SP3") {
+        detectedModel = .sp3
+      } else {
+        throw PrinterDetectionError.unknownModel(modelPayload.modelName)
+      }
+
+      debugLog("Creating printer instance for \(detectedModel)")
+      return printer(model: detectedModel, host: host, port: port, pinCode: pinCode)
+    } catch {
+      debugLog("Auto-detection failed: \(error)")
+      throw error
+    }
+  }
+}
+
+/// Printer detection errors.
+public enum PrinterDetectionError: Error, CustomStringConvertible {
+  case unknownModel(String)
+
+  public var description: String {
+    switch self {
+    case let .unknownModel(name):
+      "Unknown printer model: \(name). Expected SP-2 or SP-3."
+    }
+  }
 }
