@@ -20,6 +20,10 @@ let package = Package(
       name: "instax-mock-server",
       targets: ["InstaxMockServer"]
     ),
+    .executable(
+      name: "OpenInstaxServer",
+      targets: ["OpenInstaxServer"]
+    ),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
@@ -42,6 +46,10 @@ let package = Package(
         "InstaxKit",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ]
+    ),
+    .executableTarget(
+      name: "OpenInstaxServer",
+      dependencies: ["InstaxKit"]
     ),
     .testTarget(
       name: "InstaxKitTests",
