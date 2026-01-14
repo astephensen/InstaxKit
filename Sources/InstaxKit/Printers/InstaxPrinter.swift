@@ -184,8 +184,8 @@ final class InstaxPrinterBase: @unchecked Sendable {
   }
 
   func printImage(encodedData: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
-    let segmentSize = 60000
-    let totalSegments = model.segmentCount
+    let segmentSize = model.segmentSize
+    let totalSegments = (encodedData.count + segmentSize - 1) / segmentSize // Ceiling division
 
     // Phase 1: Send pre-print commands
     progress(PrintProgress(stage: .connecting, percentage: 0, message: "Connecting to printer..."))

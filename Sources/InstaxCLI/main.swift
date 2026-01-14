@@ -21,7 +21,7 @@ struct PrintCommand: AsyncParsableCommand {
   @Argument(help: "Path to the image file")
   var imagePath: String
 
-  @Option(name: .shortAndLong, help: "Printer model (sp2, sp3, or auto)")
+  @Option(name: .shortAndLong, help: "Printer model (sp1, sp2, sp3, or auto)")
   var printer: String?
 
   @Option(name: .long, help: "Printer IP address")
@@ -52,12 +52,14 @@ struct PrintCommand: AsyncParsableCommand {
     if let printer, printer.lowercased() != "auto" {
       let model: PrinterModel
       switch printer.lowercased() {
+      case "sp1", "1":
+        model = .sp1
       case "sp2", "2":
         model = .sp2
       case "sp3", "3":
         model = .sp3
       default:
-        throw ValidationError("Unknown printer model: \(printer). Use 'sp2', 'sp3', or 'auto'.")
+        throw ValidationError("Unknown printer model: \(printer). Use 'sp1', 'sp2', 'sp3', or 'auto'.")
       }
       print("Printing to Instax \(printer.uppercased()) at \(host):\(port)")
       printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
@@ -101,7 +103,7 @@ struct InfoCommand: AsyncParsableCommand {
     abstract: "Get printer information"
   )
 
-  @Option(name: .shortAndLong, help: "Printer model (sp2, sp3, or auto)")
+  @Option(name: .shortAndLong, help: "Printer model (sp1, sp2, sp3, or auto)")
   var printer: String?
 
   @Option(name: .long, help: "Printer IP address")
@@ -126,12 +128,14 @@ struct InfoCommand: AsyncParsableCommand {
     if let printer, printer.lowercased() != "auto" {
       let model: PrinterModel
       switch printer.lowercased() {
+      case "sp1", "1":
+        model = .sp1
       case "sp2", "2":
         model = .sp2
       case "sp3", "3":
         model = .sp3
       default:
-        throw ValidationError("Unknown printer model: \(printer). Use 'sp2', 'sp3', or 'auto'.")
+        throw ValidationError("Unknown printer model: \(printer). Use 'sp1', 'sp2', 'sp3', or 'auto'.")
       }
       print("Connecting to Instax \(printer.uppercased()) at \(host):\(port)...")
       printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)

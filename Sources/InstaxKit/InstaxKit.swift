@@ -29,6 +29,8 @@ public enum InstaxKit {
     pinCode: UInt16 = 1111
   ) -> any InstaxPrinter {
     switch model {
+    case .sp1:
+      SP1(host: host, port: port, pinCode: pinCode)
     case .sp2:
       SP2(host: host, port: port, pinCode: pinCode)
     case .sp3:
@@ -61,7 +63,9 @@ public enum InstaxKit {
       // Parse model name to determine type
       let modelName = modelPayload.modelName.uppercased()
       let detectedModel: PrinterModel
-      if modelName.contains("SP-2") || modelName.contains("SP2") {
+      if modelName.contains("SP-1") || modelName.contains("SP1") {
+        detectedModel = .sp1
+      } else if modelName.contains("SP-2") || modelName.contains("SP2") {
         detectedModel = .sp2
       } else if modelName.contains("SP-3") || modelName.contains("SP3") {
         detectedModel = .sp3
@@ -85,7 +89,7 @@ public enum PrinterDetectionError: Error, CustomStringConvertible {
   public var description: String {
     switch self {
     case let .unknownModel(name):
-      "Unknown printer model: \(name). Expected SP-2 or SP-3."
+      "Unknown printer model: \(name). Expected SP-1, SP-2, or SP-3."
     }
   }
 }

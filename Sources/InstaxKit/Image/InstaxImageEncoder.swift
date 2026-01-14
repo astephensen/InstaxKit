@@ -226,6 +226,11 @@ public struct InstaxImageEncoder: Sendable {
   }
 
   private func encodeForTransmission(_ image: CGImage) -> Data {
+    // SP-1 uses JPEG encoding instead of channel-separated format
+    if model == .sp1 {
+      return encodeAsJPEG(image)
+    }
+
     let width = model.imageWidth // printWidth in Python
     let height = model.imageHeight // printHeight in Python
 
@@ -279,6 +284,25 @@ public struct InstaxImageEncoder: Sendable {
     }
 
     return Data(encodedBytes)
+  }
+
+  /// Encode image as JPEG (for SP-1)
+  private func encodeAsJPEG(_ image: CGImage) -> Data {
+    #if canImport(AppKit)
+      let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+      guard let tiffData = nsImage.tiffRepresentation,
+        let bitmapImage = NSBitmapImageRep(data: tiffData),
+        let jpegData = bitmapImage.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+      else {
+        return Data()
+      }
+      return jpegData
+    #elseif canImport(UIKit)
+      let uiImage = UIImage(cgImage: image)
+      return uiImage.jpegData(compressionQuality: 0.9) ?? Data()
+    #else
+      return Data()
+    #endif
   }
 
   /// Decode image data back to a CGImage (for testing/preview).

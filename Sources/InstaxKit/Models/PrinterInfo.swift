@@ -66,11 +66,13 @@ public enum PrintStage: Sendable {
 
 /// Printer model types.
 public enum PrinterModel: Sendable {
+  case sp1
   case sp2
   case sp3
 
   public var imageWidth: Int {
     switch self {
+    case .sp1: 480
     case .sp2: 600
     case .sp3: 800
     }
@@ -78,16 +80,31 @@ public enum PrinterModel: Sendable {
 
   public var imageHeight: Int {
     switch self {
+    case .sp1: 640
     case .sp2: 800
     case .sp3: 800
     }
   }
 
   public var totalImageBytes: Int {
-    imageWidth * imageHeight * 3
+    switch self {
+    case .sp1:
+      // SP-1 uses JPEG encoding, size varies
+      imageWidth * imageHeight * 3
+    case .sp2, .sp3:
+      imageWidth * imageHeight * 3
+    }
+  }
+
+  public var segmentSize: Int {
+    switch self {
+    case .sp1: 960
+    case .sp2, .sp3: 60000
+    }
   }
 
   public var segmentCount: Int {
-    totalImageBytes / 60000
+    // Approximate - actual count depends on encoded image size
+    totalImageBytes / segmentSize
   }
 }

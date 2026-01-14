@@ -1,10 +1,12 @@
 # InstaxKit
 
-A Swift library and CLI tool for printing to Fujifilm Instax SP-2 and SP-3 printers.
+A Swift library and CLI tool for printing to Fujifilm Instax SP-1, SP-2, and SP-3 printers.
 
 ## Acknowledgements
 
 This project is a Swift rewrite of [instax_api](https://github.com/jpwsutton/instax_api) by [James Sutton](https://github.com/jpwsutton). Huge thanks to James for reverse-engineering the Instax printer protocol and creating the original Python implementation.
+
+SP-1 printer support is based on the work by [cool2man](https://github.com/cool2man/instax_api) who added SP-1 compatibility to the original Python implementation.
 
 ## Requirements
 
@@ -42,6 +44,7 @@ The binary will be at `.build/release/instax`.
 instax print photo.jpg
 
 # Specify printer model explicitly
+instax print photo.jpg --printer sp1
 instax print photo.jpg --printer sp2
 instax print photo.jpg --printer sp3
 
@@ -87,7 +90,7 @@ InstaxKit is designed for easy integration into iOS and macOS apps.
 ```swift
 import InstaxKit
 
-// Automatically detect SP-2 or SP-3
+// Automatically detect SP-1, SP-2, or SP-3
 let printer = try await InstaxKit.detectPrinter(host: "192.168.0.251")
 try await printer.print(imageAt: imageURL) { progress in
   print("\(progress.percentage)% - \(progress.message)")
@@ -99,7 +102,14 @@ try await printer.print(imageAt: imageURL) { progress in
 ```swift
 import InstaxKit
 
+// SP-1 (480x640, JPEG encoding)
+let printer = SP1()
+
+// SP-2 (600x800)
 let printer = SP2()
+
+// SP-3 (800x800, square)
+let printer = SP3()
 
 try await printer.print(imageAt: imageURL) { progress in
   print("\(progress.percentage)% - \(progress.message)")
@@ -189,7 +199,9 @@ try await printer.print(encodedImage: encodedData) { _ in }
 
 - Enable DHCP on your computer if you have a static IP configured
 - The printer auto-shutdowns after ~10 minutes of inactivity
-- SP-2 prints at 600x800, SP-3 prints at 800x800 (square)
+- SP-1 prints at 480x640 (uses JPEG encoding)
+- SP-2 prints at 600x800
+- SP-3 prints at 800x800 (square)
 
 ## Development
 
@@ -204,12 +216,25 @@ swift test
 For testing without a physical printer:
 
 ```bash
+# Start mock SP-2 printer (default)
 swift run instax-mock-server --port 8080
+
+# Start mock SP-1 printer
+swift run instax-mock-server --port 8080 --model sp1
+
+# Start mock SP-3 printer
+swift run instax-mock-server --port 8080 --model sp3
+
+# Custom battery and prints
+swift run instax-mock-server --battery 3 --prints 5
 ```
 
 Then point the CLI at localhost:
 
 ```bash
+instax print photo.jpg --host 127.0.0.1
+
+# Or let it auto-detect the mock printer model
 instax print photo.jpg --host 127.0.0.1
 ```
 

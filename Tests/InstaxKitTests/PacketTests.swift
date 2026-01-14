@@ -134,14 +134,18 @@ struct PacketTests {
   }
 
   @Test func printerModel() {
+    #expect(PrinterModel.sp1.imageWidth == 480)
+    #expect(PrinterModel.sp1.imageHeight == 640)
+    #expect(PrinterModel.sp1.segmentSize == 960)
+
     #expect(PrinterModel.sp2.imageWidth == 600)
     #expect(PrinterModel.sp2.imageHeight == 800)
     #expect(PrinterModel.sp2.totalImageBytes == 1_440_000)
-    #expect(PrinterModel.sp2.segmentCount == 24)
+    #expect(PrinterModel.sp2.segmentSize == 60000)
 
     #expect(PrinterModel.sp3.imageWidth == 800)
     #expect(PrinterModel.sp3.imageHeight == 800)
     #expect(PrinterModel.sp3.totalImageBytes == 1_920_000)
-    #expect(PrinterModel.sp3.segmentCount == 32)
+    #expect(PrinterModel.sp3.segmentSize == 60000)
   }
 }

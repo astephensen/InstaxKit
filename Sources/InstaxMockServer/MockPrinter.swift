@@ -12,7 +12,7 @@ public actor MockPrinter {
   public var battery: Int = 5
   public var printsRemaining: Int = 10
   public var totalPrints: UInt32 = 100
-  public var modelName: String = "SP-2"
+  public let model: PrinterModel
 
   private let encoder = PacketEncoder()
   private let decoder = PacketDecoder()
@@ -20,11 +20,19 @@ public actor MockPrinter {
   private var receivedImageData = Data()
   private var expectedImageLength: UInt32 = 0
 
-  public init(port: UInt16 = 8080, battery: Int = 5, printsRemaining: Int = 10, modelName: String = "SP-2") {
+  public init(port: UInt16 = 8080, battery: Int = 5, printsRemaining: Int = 10, model: PrinterModel = .sp2) {
     self.port = port
     self.battery = battery
     self.printsRemaining = printsRemaining
-    self.modelName = modelName
+    self.model = model
+  }
+
+  private var modelName: String {
+    switch model {
+    case .sp1: "SP-1"
+    case .sp2: "SP-2"
+    case .sp3: "SP-3"
+    }
   }
 
   /// Start the mock server.
@@ -166,7 +174,12 @@ public actor MockPrinter {
       )
 
     case .specifications:
-      let payload = SpecificationsPayload(maxWidth: 600, maxHeight: 800, maxColors: 256, maxMessageSize: 60000)
+      let payload = SpecificationsPayload(
+        maxWidth: UInt16(model.imageWidth),
+        maxHeight: UInt16(model.imageHeight),
+        maxColors: 256,
+        maxMessageSize: UInt16(model.segmentSize)
+      )
       return encoder.encodeResponse(
         type: .specifications,
         sessionTime: sessionTime,
@@ -211,8 +224,8 @@ public actor MockPrinter {
       let prep = try packet.decodePayload(PrepImagePayload.self)
       expectedImageLength = prep.imageLength
       receivedImageData = Data()
-      print("Preparing for image of \(expectedImageLength) bytes")
-      let response = PrepImagePayload(imageLength: prep.imageLength, maxLength: 60000)
+      print("Preparing for image of \(expectedImageLength) bytes (\(model) printer)")
+      let response = PrepImagePayload(imageLength: prep.imageLength, maxLength: UInt16(model.segmentSize))
       return encoder.encodeResponse(
         type: .prepImage,
         sessionTime: sessionTime,

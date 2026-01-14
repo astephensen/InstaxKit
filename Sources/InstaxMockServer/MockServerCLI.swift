@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import InstaxKit
 
 @main
 struct MockServerCLI: AsyncParsableCommand {
@@ -17,13 +18,25 @@ struct MockServerCLI: AsyncParsableCommand {
   @Option(name: .long, help: "Prints remaining (0-15)")
   var prints: Int = 10
 
-  @Option(name: .shortAndLong, help: "Model name (SP-2 or SP-3)")
-  var model: String = "SP-2"
+  @Option(name: .shortAndLong, help: "Printer model (sp1, sp2, or sp3)")
+  var model: String = "sp2"
 
   func run() async throws {
+    let printerModel: PrinterModel
+    switch model.lowercased() {
+    case "sp1", "1":
+      printerModel = .sp1
+    case "sp2", "2":
+      printerModel = .sp2
+    case "sp3", "3":
+      printerModel = .sp3
+    default:
+      throw ValidationError("Unknown printer model: \(model). Use 'sp1', 'sp2', or 'sp3'.")
+    }
+
     print("Starting mock Instax printer...")
     print("  Port:     \(port)")
-    print("  Model:    \(model)")
+    print("  Model:    \(printerModel)")
     print("  Battery:  \(battery)/7")
     print("  Prints:   \(prints)")
     print()
@@ -32,7 +45,7 @@ struct MockServerCLI: AsyncParsableCommand {
       port: port,
       battery: battery,
       printsRemaining: prints,
-      modelName: model
+      model: printerModel
     )
 
     try await server.start()
