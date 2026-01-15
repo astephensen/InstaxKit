@@ -211,25 +211,25 @@ public struct InstaxImageEncoder: Sendable {
 
         switch orientation {
         case .portrait:
-          // No rotation - direct mapping
+          // 90° CW to compensate for column-major format
           // Source 600×800 → Output 600×800
-          srcRow = h
-          srcCol = w
-        case .landscape:
-          // 90° clockwise rotation to convert landscape to portrait
-          // Source 800×600 → Output 600×800
-          srcRow = w
-          srcCol = sourceWidth - 1 - h
-        case .portraitFlipped:
-          // 180° rotation
-          // Source 600×800 → Output 600×800
-          srcRow = sourceHeight - 1 - h
-          srcCol = sourceWidth - 1 - w
-        case .landscapeFlipped:
-          // 90° counter-clockwise rotation (270° clockwise)
-          // Source 800×600 → Output 600×800
           srcRow = sourceHeight - 1 - w
           srcCol = h
+        case .landscape:
+          // 180° (90° for landscape + 90° for format)
+          // Source 800×600 → Output 600×800
+          srcRow = sourceHeight - 1 - h
+          srcCol = sourceWidth - 1 - w
+        case .portraitFlipped:
+          // 270° CW (180° for flipped + 90° for format)
+          // Source 600×800 → Output 600×800
+          srcRow = w
+          srcCol = sourceWidth - 1 - h
+        case .landscapeFlipped:
+          // 360° = no rotation (270° for landscapeFlipped + 90° for format)
+          // Source 800×600 → Output 600×800
+          srcRow = h
+          srcCol = w
         }
 
         let srcOffset = srcRow * bytesPerRow + srcCol * bytesPerPixel
@@ -303,20 +303,20 @@ public struct InstaxImageEncoder: Sendable {
 
     switch orientation {
     case .portrait:
-      // No rotation needed
-      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
-    case .landscape:
-      // 90° clockwise - after rotation, source height becomes width
-      context.rotate(by: .pi / 2)
-      context.translateBy(x: -sourceHeight / 2, y: -sourceWidth / 2)
-    case .portraitFlipped:
-      // 180° rotation
-      context.rotate(by: .pi)
-      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
-    case .landscapeFlipped:
-      // 90° counter-clockwise - after rotation, source height becomes width
+      // 90° CW to compensate for printer orientation
       context.rotate(by: -.pi / 2)
       context.translateBy(x: -sourceHeight / 2, y: -sourceWidth / 2)
+    case .landscape:
+      // 180° (90° for landscape + 90° for printer)
+      context.rotate(by: .pi)
+      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
+    case .portraitFlipped:
+      // 270° CW (180° for flipped + 90° for printer)
+      context.rotate(by: .pi / 2)
+      context.translateBy(x: -sourceHeight / 2, y: -sourceWidth / 2)
+    case .landscapeFlipped:
+      // 360° = no rotation (270° + 90°)
+      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
     }
 
     context.draw(image, in: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
@@ -325,6 +325,27 @@ public struct InstaxImageEncoder: Sendable {
   }
 
   /// Decode image data back to a CGImage (for testing/preview).
+  ///
+  /// ## Why we rotate 90° CCW after decoding
+  ///
+  /// The encoding process applies a 90° CW rotation to ALL images before encoding.
+  /// This is necessary because:
+  ///
+  /// 1. The channel-separated format stores pixels in column-major order (column by column,
+  ///    not row by row). This effectively introduces a 90° transposition.
+  ///
+  /// 2. The physical printer's paper feed mechanism expects image data oriented a specific
+  ///    way relative to how the paper exits the printer.
+  ///
+  /// 3. To compensate for both factors, we rotate images 90° CW during encoding so they
+  ///    print correctly on the physical printer.
+  ///
+  /// For the mock server preview to display images in the same orientation as the original
+  /// (matching what the user sees in the app), we must reverse this: rotate 90° CCW after
+  /// decoding the channel-separated data.
+  ///
+  /// Without this counter-rotation, decoded previews would appear 90° rotated compared to
+  /// the source image and the physical print output.
   public func decode(_ data: Data) throws -> CGImage {
     let width = model.imageWidth
     let height = model.imageHeight
@@ -333,7 +354,7 @@ public struct InstaxImageEncoder: Sendable {
       throw ImageError.invalidData
     }
 
-    // Reverse the encoding
+    // Step 1: Reverse the channel-separated encoding back to raw pixels
     var pixels = [UInt8](repeating: 255, count: width * height * 4) // RGBA
 
     for h in 0 ..< height {
@@ -350,7 +371,7 @@ public struct InstaxImageEncoder: Sendable {
       }
     }
 
-    guard let context = CGContext(
+    guard let pixelContext = CGContext(
       data: &pixels,
       width: width,
       height: height,
@@ -359,12 +380,35 @@ public struct InstaxImageEncoder: Sendable {
       space: CGColorSpaceCreateDeviceRGB(),
       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ),
-      let image = context.makeImage()
+      let decodedImage = pixelContext.makeImage()
     else {
       throw ImageError.processingFailed
     }
 
-    return image
+    // Step 2: Rotate 90° CCW to reverse the 90° CW applied during encoding
+    // This makes the preview match the original image orientation
+    guard let rotatedContext = CGContext(
+      data: nil,
+      width: height,  // Swap dimensions for 90° rotation
+      height: width,
+      bitsPerComponent: 8,
+      bytesPerRow: 0,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+      throw ImageError.processingFailed
+    }
+
+    // Rotate 90° CCW: translate to center, rotate, translate back
+    rotatedContext.translateBy(x: 0, y: CGFloat(width))
+    rotatedContext.rotate(by: -.pi / 2)
+    rotatedContext.draw(decodedImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+    guard let rotatedImage = rotatedContext.makeImage() else {
+      throw ImageError.processingFailed
+    }
+
+    return rotatedImage
   }
 }
 
