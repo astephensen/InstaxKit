@@ -51,9 +51,6 @@ instax print photo.jpg --printer sp3
 # With custom settings
 instax print photo.jpg --host 192.168.0.251 --pin 1234
 
-# Rotate image 90 degrees clockwise
-instax print photo.jpg --rotate 90
-
 # Enable debug output
 instax print photo.jpg --verbose
 ```
@@ -182,7 +179,7 @@ If you need to encode an image without printing:
 
 ```swift
 let encoder = InstaxImageEncoder(model: .sp2)
-let encodedData = try encoder.encode(from: imageURL, rotation: .clockwise90)
+let encodedData = try encoder.encode(from: imageURL)
 
 // Later, print the pre-encoded data
 try await printer.print(encodedImage: encodedData) { _ in }
