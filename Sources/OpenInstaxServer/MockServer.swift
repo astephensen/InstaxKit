@@ -76,7 +76,12 @@ actor MockServer {
     listener?.cancel()
     listener = nil
     for connection in connections {
-      connection.cancel()
+      switch connection.state {
+      case .cancelled, .failed:
+        break
+      default:
+        connection.cancel()
+      }
     }
     connections.removeAll()
   }

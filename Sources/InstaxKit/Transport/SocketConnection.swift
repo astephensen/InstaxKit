@@ -71,6 +71,7 @@ public actor SocketConnection {
       // Timeout
       Task {
         try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+        connection.cancel()
         complete(with: .failure(ConnectionError.timeout))
       }
     }
@@ -172,7 +173,15 @@ public actor SocketConnection {
   /// Close the connection.
   public func close() {
     debugLog("Closing connection")
-    connection?.cancel()
+    if let connection {
+      switch connection.state {
+      case .cancelled, .failed:
+        // Already terminated, don't cancel again
+        break
+      default:
+        connection.cancel()
+      }
+    }
     connection = nil
   }
 
