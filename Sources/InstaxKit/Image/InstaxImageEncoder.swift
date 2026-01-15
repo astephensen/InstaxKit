@@ -10,17 +10,6 @@ import ImageIO
   import UIKit
 #endif
 
-/// Image rotation options.
-public enum ImageRotation: Int, Sendable {
-  case none = 0
-  case clockwise90 = 90
-  case clockwise180 = 180
-  case clockwise270 = 270
-
-  var radians: CGFloat {
-    CGFloat(rawValue) * .pi / 180
-  }
-}
 
 /// Encodes images for Instax printers.
 public struct InstaxImageEncoder: Sendable {
@@ -31,77 +20,31 @@ public struct InstaxImageEncoder: Sendable {
   }
 
   /// Load and encode an image from a file URL.
-  public func encode(from url: URL, rotation: ImageRotation = .none) throws -> Data {
+  public func encode(from url: URL, orientation: InstaxOrientation = .portrait) throws -> Data {
     guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
           let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
     else {
       throw ImageError.loadFailed
     }
 
-    // Get EXIF orientation
-    let orientation = getOrientation(from: imageSource)
+    // Get EXIF orientation and apply it
+    let exifOrientation = getOrientation(from: imageSource)
+    let processedImage = applyOrientation(cgImage, orientation: exifOrientation)
 
-    // Apply EXIF orientation
-    var processedImage = applyOrientation(cgImage, orientation: orientation)
+    // Resize and crop to fit the target dimensions for this orientation
+    let fittedImage = try fitImage(processedImage, for: orientation)
 
-    // Apply user-requested rotation
-    if rotation != .none {
-      processedImage = rotateImage(processedImage, by: rotation)
-    }
-
-    // Resize and crop to fit
-    let fittedImage = try fitImage(processedImage)
-
-    // Encode for transmission
-    return encodeForTransmission(fittedImage)
+    // Encode for transmission (rotation is applied during encoding)
+    return encodeForTransmission(fittedImage, for: orientation)
   }
 
   /// Encode a CGImage directly.
-  public func encode(image: CGImage, rotation: ImageRotation = .none) throws -> Data {
-    var processedImage = image
-    if rotation != .none {
-      processedImage = rotateImage(image, by: rotation)
-    }
-    let fittedImage = try fitImage(processedImage)
-    return encodeForTransmission(fittedImage)
-  }
+  public func encode(image: CGImage, orientation: InstaxOrientation = .portrait) throws -> Data {
+    // Resize and crop to fit the target dimensions for this orientation
+    let fittedImage = try fitImage(image, for: orientation)
 
-  /// Rotate an image by the specified amount.
-  private func rotateImage(_ image: CGImage, by rotation: ImageRotation) -> CGImage {
-    let width = image.width
-    let height = image.height
-
-    // For 90 or 270 degree rotation, swap dimensions
-    let newWidth: Int
-    let newHeight: Int
-    if rotation == .clockwise90 || rotation == .clockwise270 {
-      newWidth = height
-      newHeight = width
-    } else {
-      newWidth = width
-      newHeight = height
-    }
-
-    guard let context = CGContext(
-      data: nil,
-      width: newWidth,
-      height: newHeight,
-      bitsPerComponent: 8,
-      bytesPerRow: 0,
-      space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else {
-      return image
-    }
-
-    // Move origin to center, rotate, then move back
-    context.translateBy(x: CGFloat(newWidth) / 2, y: CGFloat(newHeight) / 2)
-    context.rotate(by: -rotation.radians) // Negative because CG rotates counter-clockwise
-    context.translateBy(x: -CGFloat(width) / 2, y: -CGFloat(height) / 2)
-
-    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-    return context.makeImage() ?? image
+    // Encode for transmission (rotation is applied during encoding)
+    return encodeForTransmission(fittedImage, for: orientation)
   }
 
   private func getOrientation(from source: CGImageSource) -> CGImagePropertyOrientation {
@@ -175,9 +118,17 @@ public struct InstaxImageEncoder: Sendable {
     return context.makeImage() ?? image
   }
 
-  private func fitImage(_ image: CGImage) throws -> CGImage {
-    let targetWidth = model.imageWidth
-    let targetHeight = model.imageHeight
+  private func fitImage(_ image: CGImage, for orientation: InstaxOrientation) throws -> CGImage {
+    // For landscape orientations, swap target dimensions
+    let targetWidth: Int
+    let targetHeight: Int
+    if orientation.swapsDimensions {
+      targetWidth = model.imageHeight
+      targetHeight = model.imageWidth
+    } else {
+      targetWidth = model.imageWidth
+      targetHeight = model.imageHeight
+    }
 
     // Calculate aspect-fit dimensions
     let sourceWidth = CGFloat(image.width)
@@ -225,14 +176,15 @@ public struct InstaxImageEncoder: Sendable {
     return resultImage
   }
 
-  private func encodeForTransmission(_ image: CGImage) -> Data {
+  private func encodeForTransmission(_ image: CGImage, for orientation: InstaxOrientation) -> Data {
     // SP-1 uses JPEG encoding instead of channel-separated format
     if model == .sp1 {
-      return encodeAsJPEG(image)
+      return encodeAsJPEG(image, for: orientation)
     }
 
-    let width = model.imageWidth // printWidth in Python
-    let height = model.imageHeight // printHeight in Python
+    // Printer always expects data in native dimensions (width x height)
+    let outputWidth = model.imageWidth
+    let outputHeight = model.imageHeight
 
     // Get raw pixel data
     guard let dataProvider = image.dataProvider,
@@ -243,39 +195,53 @@ public struct InstaxImageEncoder: Sendable {
 
     let bytesPerPixel = image.bitsPerPixel / 8
     let bytesPerRow = image.bytesPerRow
-
-    // Rotate image 90 degrees counter-clockwise for the printer
-    // Then encode in the special channel-separated format
+    let sourceWidth = image.width
+    let sourceHeight = image.height
 
     // Create output buffer: width * height * 3 (RGB only)
-    let totalBytes = width * height * 3
+    let totalBytes = outputWidth * outputHeight * 3
     var encodedBytes = [UInt8](repeating: 0, count: totalBytes)
 
-    // The Python code rotates -90 degrees first if width != printWidth
-    // For portrait orientation (thick edge at bottom)
-    // We need to match the exact encoding: column-major, channel-separated
+    // Encode in channel-separated format, rotating as needed for orientation
+    for h in 0 ..< outputHeight {
+      for w in 0 ..< outputWidth {
+        // Calculate source coordinates based on orientation
+        let srcRow: Int
+        let srcCol: Int
 
-    for h in 0 ..< height {
-      for w in 0 ..< width {
-        // After rotation, we read from the source appropriately
-        // Source is in row-major RGBA format
+        switch orientation {
+        case .portrait:
+          // No rotation - direct mapping
+          // Source 600×800 → Output 600×800
+          srcRow = h
+          srcCol = w
+        case .landscape:
+          // 90° clockwise rotation to convert landscape to portrait
+          // Source 800×600 → Output 600×800
+          srcRow = w
+          srcCol = sourceWidth - 1 - h
+        case .portraitFlipped:
+          // 180° rotation
+          // Source 600×800 → Output 600×800
+          srcRow = sourceHeight - 1 - h
+          srcCol = sourceWidth - 1 - w
+        case .landscapeFlipped:
+          // 90° counter-clockwise rotation (270° clockwise)
+          // Source 800×600 → Output 600×800
+          srcRow = sourceHeight - 1 - w
+          srcCol = h
+        }
 
-        let srcRow = h
-        let srcCol = w
         let srcOffset = srcRow * bytesPerRow + srcCol * bytesPerPixel
 
         let r = pixelData[srcOffset]
         let g = pixelData[srcOffset + 1]
         let b = pixelData[srcOffset + 2]
 
-        // Target encoding formula from Python:
-        // redTarget = (((w * height) * 3) + (height * 0)) + h
-        // greenTarget = (((w * height) * 3) + (height * 1)) + h
-        // blueTarget = (((w * height) * 3) + (height * 2)) + h
-
-        let redTarget = ((w * height) * 3) + (height * 0) + h
-        let greenTarget = ((w * height) * 3) + (height * 1) + h
-        let blueTarget = ((w * height) * 3) + (height * 2) + h
+        // Target encoding formula (channel-separated, column-major)
+        let redTarget = ((w * outputHeight) * 3) + (outputHeight * 0) + h
+        let greenTarget = ((w * outputHeight) * 3) + (outputHeight * 1) + h
+        let blueTarget = ((w * outputHeight) * 3) + (outputHeight * 2) + h
 
         encodedBytes[redTarget] = r
         encodedBytes[greenTarget] = g
@@ -287,9 +253,15 @@ public struct InstaxImageEncoder: Sendable {
   }
 
   /// Encode image as JPEG (for SP-1)
-  private func encodeAsJPEG(_ image: CGImage) -> Data {
+  private func encodeAsJPEG(_ image: CGImage, for orientation: InstaxOrientation) -> Data {
+    // For SP-1, rotate the image first if needed for orientation
+    var rotatedImage = image
+    if orientation != .portrait {
+      rotatedImage = rotateImageForJPEG(image, for: orientation)
+    }
+
     #if canImport(AppKit)
-      let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+      let nsImage = NSImage(cgImage: rotatedImage, size: NSSize(width: rotatedImage.width, height: rotatedImage.height))
       guard let tiffData = nsImage.tiffRepresentation,
         let bitmapImage = NSBitmapImageRep(data: tiffData),
         let jpegData = bitmapImage.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
@@ -298,11 +270,58 @@ public struct InstaxImageEncoder: Sendable {
       }
       return jpegData
     #elseif canImport(UIKit)
-      let uiImage = UIImage(cgImage: image)
+      let uiImage = UIImage(cgImage: rotatedImage)
       return uiImage.jpegData(compressionQuality: 0.9) ?? Data()
     #else
       return Data()
     #endif
+  }
+
+  /// Rotate image for JPEG encoding (SP-1)
+  private func rotateImageForJPEG(_ image: CGImage, for orientation: InstaxOrientation) -> CGImage {
+    let sourceWidth = CGFloat(image.width)
+    let sourceHeight = CGFloat(image.height)
+
+    // Output dimensions for printer's native format
+    let outputWidth = model.imageWidth
+    let outputHeight = model.imageHeight
+
+    guard let context = CGContext(
+      data: nil,
+      width: outputWidth,
+      height: outputHeight,
+      bitsPerComponent: 8,
+      bytesPerRow: 0,
+      space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+      return image
+    }
+
+    // Apply rotation transform centered on output
+    context.translateBy(x: CGFloat(outputWidth) / 2, y: CGFloat(outputHeight) / 2)
+
+    switch orientation {
+    case .portrait:
+      // No rotation needed
+      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
+    case .landscape:
+      // 90° clockwise - after rotation, source height becomes width
+      context.rotate(by: .pi / 2)
+      context.translateBy(x: -sourceHeight / 2, y: -sourceWidth / 2)
+    case .portraitFlipped:
+      // 180° rotation
+      context.rotate(by: .pi)
+      context.translateBy(x: -sourceWidth / 2, y: -sourceHeight / 2)
+    case .landscapeFlipped:
+      // 90° counter-clockwise - after rotation, source height becomes width
+      context.rotate(by: -.pi / 2)
+      context.translateBy(x: -sourceHeight / 2, y: -sourceWidth / 2)
+    }
+
+    context.draw(image, in: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+
+    return context.makeImage() ?? image
   }
 
   /// Decode image data back to a CGImage (for testing/preview).

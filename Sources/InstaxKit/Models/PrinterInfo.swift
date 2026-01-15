@@ -1,5 +1,36 @@
 import Foundation
 
+/// Image orientation for printing.
+public enum InstaxOrientation: String, Sendable, CaseIterable {
+  case portrait
+  case landscape
+  case portraitFlipped
+  case landscapeFlipped
+
+  /// The rotation in degrees needed to achieve this orientation.
+  public var rotationDegrees: Int {
+    switch self {
+    case .portrait: 0
+    case .landscape: 90
+    case .portraitFlipped: 180
+    case .landscapeFlipped: 270
+    }
+  }
+
+  /// The rotation in radians needed to achieve this orientation.
+  public var rotationRadians: CGFloat {
+    CGFloat(rotationDegrees) * .pi / 180
+  }
+
+  /// Whether dimensions should be swapped for this orientation.
+  public var swapsDimensions: Bool {
+    switch self {
+    case .portrait, .portraitFlipped: false
+    case .landscape, .landscapeFlipped: true
+    }
+  }
+}
+
 /// Information about an Instax printer.
 public struct PrinterInfo: Sendable {
   public let modelName: String
