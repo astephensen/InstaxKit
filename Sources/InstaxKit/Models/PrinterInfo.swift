@@ -1,11 +1,5 @@
 import Foundation
 
-/// Image orientation for printing.
-public enum InstaxOrientation: String, Sendable, CaseIterable {
-  case portrait
-  case landscape
-}
-
 /// Information about an Instax printer.
 public struct PrinterInfo: Sendable {
   public let modelName: String

@@ -1,6 +1,5 @@
 import CoreGraphics
 import Foundation
-import ImageIO
 
 #if canImport(AppKit)
   import AppKit
@@ -10,8 +9,12 @@ import ImageIO
   import UIKit
 #endif
 
-
 /// Encodes images for Instax printers.
+///
+/// Images must be provided at the exact size for the printer model:
+/// - SP-1: 480×640
+/// - SP-2: 600×800
+/// - SP-3: 800×800
 public struct InstaxImageEncoder: Sendable {
   public let model: PrinterModel
 
@@ -19,84 +22,33 @@ public struct InstaxImageEncoder: Sendable {
     self.model = model
   }
 
-  /// Load and encode an image from a file URL.
-  public func encode(from url: URL) throws -> Data {
-    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
-    else {
-      throw ImageError.loadFailed
-    }
-
-    let fittedImage = try fitImage(cgImage)
-    return encodeForTransmission(fittedImage)
-  }
-
-  /// Encode a CGImage directly.
+  /// Encode a CGImage for transmission to the printer.
+  ///
+  /// The image must be exactly the right size for the printer model.
+  /// - Throws: `ImageError.invalidDimensions` if the image is not the correct size
   public func encode(image: CGImage) throws -> Data {
-    let fittedImage = try fitImage(image)
-    return encodeForTransmission(fittedImage)
-  }
+    let expectedWidth = model.imageWidth
+    let expectedHeight = model.imageHeight
 
-  private func fitImage(_ image: CGImage) throws -> CGImage {
-    let targetWidth = model.imageWidth
-    let targetHeight = model.imageHeight
-
-    // Calculate aspect-fit dimensions
-    let sourceWidth = CGFloat(image.width)
-    let sourceHeight = CGFloat(image.height)
-    let targetSize = CGSize(width: targetWidth, height: targetHeight)
-
-    let widthRatio = targetSize.width / sourceWidth
-    let heightRatio = targetSize.height / sourceHeight
-
-    // Use the larger ratio to ensure we cover the target (aspect-fill for cropping)
-    let scale = max(widthRatio, heightRatio)
-
-    let scaledWidth = sourceWidth * scale
-    let scaledHeight = sourceHeight * scale
-
-    // Center crop
-    let x = (scaledWidth - targetSize.width) / 2
-    let y = (scaledHeight - targetSize.height) / 2
-
-    // Create context with white background
-    guard let context = CGContext(
-      data: nil,
-      width: targetWidth,
-      height: targetHeight,
-      bitsPerComponent: 8,
-      bytesPerRow: targetWidth * 4,
-      space: CGColorSpaceCreateDeviceRGB(),
-      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else {
-      throw ImageError.contextCreationFailed
+    guard image.width == expectedWidth && image.height == expectedHeight else {
+      throw ImageError.invalidDimensions(
+        expected: (expectedWidth, expectedHeight),
+        actual: (image.width, image.height)
+      )
     }
 
-    // Fill with white background
-    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
-
-    // Draw scaled and centered image
-    let drawRect = CGRect(x: -x, y: -y, width: scaledWidth, height: scaledHeight)
-    context.draw(image, in: drawRect)
-
-    guard let resultImage = context.makeImage() else {
-      throw ImageError.processingFailed
-    }
-
-    return resultImage
-  }
-
-  private func encodeForTransmission(_ image: CGImage) -> Data {
-    // SP-1 uses JPEG encoding instead of channel-separated format
     if model == .sp1 {
       return encodeAsJPEG(image)
     }
 
-    let outputWidth = model.imageWidth
-    let outputHeight = model.imageHeight
+    return encodeChannelSeparated(image)
+  }
 
-    // Get raw pixel data
+  /// Encode in channel-separated format (SP-2, SP-3)
+  private func encodeChannelSeparated(_ image: CGImage) -> Data {
+    let width = model.imageWidth
+    let height = model.imageHeight
+
     guard let dataProvider = image.dataProvider,
           let pixelData = dataProvider.data as Data?
     else {
@@ -106,34 +58,44 @@ public struct InstaxImageEncoder: Sendable {
     let bytesPerPixel = image.bitsPerPixel / 8
     let bytesPerRow = image.bytesPerRow
 
-    // Create output buffer: width * height * 3 (RGB only)
-    let totalBytes = outputWidth * outputHeight * 3
+    let totalBytes = width * height * 3
     var encodedBytes = [UInt8](repeating: 0, count: totalBytes)
 
-    // Encode in channel-separated format
-    for h in 0 ..< outputHeight {
-      for w in 0 ..< outputWidth {
-        let srcOffset = h * bytesPerRow + w * bytesPerPixel
+    if model == .sp3 {
+      // SP-3: 90° CW rotation during encoding
+      // Output (w,h) ← Source (h, size-1-w)
+      // Loop order optimized: source reads sequential within rows, target writes sequential within columns
+      for w in 0 ..< width {
+        let srcRow = height - 1 - w
+        let srcRowBase = srcRow * bytesPerRow
+        let targetBase = w * height * 3
 
-        let r = pixelData[srcOffset]
-        let g = pixelData[srcOffset + 1]
-        let b = pixelData[srcOffset + 2]
+        for h in 0 ..< height {
+          let srcOffset = srcRowBase + h * bytesPerPixel
+          encodedBytes[targetBase + h] = pixelData[srcOffset]
+          encodedBytes[targetBase + height + h] = pixelData[srcOffset + 1]
+          encodedBytes[targetBase + height * 2 + h] = pixelData[srcOffset + 2]
+        }
+      }
+    } else {
+      // SP-2: No rotation
+      for h in 0 ..< height {
+        let srcRowBase = h * bytesPerRow
 
-        // Target encoding formula (channel-separated, column-major)
-        let redTarget = ((w * outputHeight) * 3) + (outputHeight * 0) + h
-        let greenTarget = ((w * outputHeight) * 3) + (outputHeight * 1) + h
-        let blueTarget = ((w * outputHeight) * 3) + (outputHeight * 2) + h
-
-        encodedBytes[redTarget] = r
-        encodedBytes[greenTarget] = g
-        encodedBytes[blueTarget] = b
+        for w in 0 ..< width {
+          let srcOffset = srcRowBase + w * bytesPerPixel
+          let targetBase = w * height * 3
+          encodedBytes[targetBase + h] = pixelData[srcOffset]
+          encodedBytes[targetBase + height + h] = pixelData[srcOffset + 1]
+          encodedBytes[targetBase + height * 2 + h] = pixelData[srcOffset + 2]
+        }
       }
     }
 
     return Data(encodedBytes)
   }
 
-  /// Encode image as JPEG (for SP-1)
+  /// Encode as JPEG (SP-1)
   private func encodeAsJPEG(_ image: CGImage) -> Data {
     #if canImport(AppKit)
       let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
@@ -161,24 +123,40 @@ public struct InstaxImageEncoder: Sendable {
       throw ImageError.invalidData
     }
 
-    // Reverse the channel-separated encoding back to raw pixels
     var pixels = [UInt8](repeating: 255, count: width * height * 4) // RGBA
 
-    for h in 0 ..< height {
-      for w in 0 ..< width {
-        let redSource = ((w * height) * 3) + (height * 0) + h
-        let greenSource = ((w * height) * 3) + (height * 1) + h
-        let blueSource = ((w * height) * 3) + (height * 2) + h
+    if model == .sp3 {
+      // SP-3: Reverse 90° CW rotation (apply 90° CCW)
+      // Decoded (w,h) ← Encoded (size-1-h, w)
+      for h in 0 ..< height {
+        for w in 0 ..< width {
+          let encW = height - 1 - h
+          let encH = w
+          let sourceBase = encW * height * 3
+          let targetOffset = (h * width + w) * 4
 
-        let targetOffset = (h * width + w) * 4
-        pixels[targetOffset] = data[redSource]
-        pixels[targetOffset + 1] = data[greenSource]
-        pixels[targetOffset + 2] = data[blueSource]
-        pixels[targetOffset + 3] = 255 // Alpha
+          pixels[targetOffset] = data[sourceBase + encH]
+          pixels[targetOffset + 1] = data[sourceBase + height + encH]
+          pixels[targetOffset + 2] = data[sourceBase + height * 2 + encH]
+          pixels[targetOffset + 3] = 255
+        }
+      }
+    } else {
+      // SP-2: No rotation
+      for h in 0 ..< height {
+        for w in 0 ..< width {
+          let sourceBase = w * height * 3
+          let targetOffset = (h * width + w) * 4
+
+          pixels[targetOffset] = data[sourceBase + h]
+          pixels[targetOffset + 1] = data[sourceBase + height + h]
+          pixels[targetOffset + 2] = data[sourceBase + height * 2 + h]
+          pixels[targetOffset + 3] = 255
+        }
       }
     }
 
-    guard let pixelContext = CGContext(
+    guard let context = CGContext(
       data: &pixels,
       width: width,
       height: height,
@@ -187,7 +165,7 @@ public struct InstaxImageEncoder: Sendable {
       space: CGColorSpaceCreateDeviceRGB(),
       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ),
-      let decodedImage = pixelContext.makeImage()
+      let decodedImage = context.makeImage()
     else {
       throw ImageError.processingFailed
     }
@@ -198,8 +176,7 @@ public struct InstaxImageEncoder: Sendable {
 
 /// Image processing errors.
 public enum ImageError: Error, Sendable {
-  case loadFailed
-  case contextCreationFailed
+  case invalidDimensions(expected: (Int, Int), actual: (Int, Int))
   case processingFailed
   case invalidData
 }

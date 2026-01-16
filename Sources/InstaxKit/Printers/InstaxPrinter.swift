@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Unified Instax printer interface supporting SP-1, SP-2, and SP-3 models.
@@ -24,13 +25,18 @@ public actor InstaxPrinter {
     try await base.getInfo()
   }
 
-  /// Print an image from a URL.
-  public func print(imageAt url: URL, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
-    let encodedData = try imageEncoder.encode(from: url)
+  /// Print a CGImage.
+  ///
+  /// The image must be exactly the right size for the printer model:
+  /// - SP-1: 480×640
+  /// - SP-2: 600×800
+  /// - SP-3: 800×800
+  public func print(image: CGImage, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
+    let encodedData = try imageEncoder.encode(image: image)
     try await base.printImage(encodedData: encodedData, progress: progress)
   }
 
-  /// Print an image from raw encoded bytes.
+  /// Print from raw encoded bytes.
   public func print(encodedImage: Data, progress: @escaping @Sendable (PrintProgress) -> Void) async throws {
     try await base.printImage(encodedData: encodedImage, progress: progress)
   }

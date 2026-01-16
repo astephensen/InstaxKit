@@ -1,5 +1,7 @@
 import ArgumentParser
+import CoreGraphics
 import Foundation
+import ImageIO
 import InstaxKit
 
 @main
@@ -70,14 +72,69 @@ struct PrintCommand: AsyncParsableCommand {
       print("Detected: \(info.modelName)")
     }
 
+    // Load and prepare image
+    let model = await printerInstance.model
+    guard let preparedImage = loadAndPrepareImage(url: imageURL, for: model) else {
+      print("Error: Failed to load or prepare image")
+      throw ExitCode.failure
+    }
+
     do {
-      try await printerInstance.print(imageAt: imageURL) { progress in
+      try await printerInstance.print(image: preparedImage) { progress in
         printProgress(progress)
       }
     } catch {
       print("\nError: \(error)")
       throw ExitCode.failure
     }
+  }
+
+  /// Load image from URL and resize to printer dimensions
+  private func loadAndPrepareImage(url: URL, for model: PrinterModel) -> CGImage? {
+    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let sourceImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
+    else {
+      return nil
+    }
+
+    let targetWidth = model.imageWidth
+    let targetHeight = model.imageHeight
+
+    // Calculate aspect-fill dimensions
+    let sourceWidth = CGFloat(sourceImage.width)
+    let sourceHeight = CGFloat(sourceImage.height)
+    let targetAspect = CGFloat(targetWidth) / CGFloat(targetHeight)
+    let sourceAspect = sourceWidth / sourceHeight
+
+    let scale: CGFloat
+    if sourceAspect > targetAspect {
+      scale = CGFloat(targetHeight) / sourceHeight
+    } else {
+      scale = CGFloat(targetWidth) / sourceWidth
+    }
+
+    let scaledWidth = sourceWidth * scale
+    let scaledHeight = sourceHeight * scale
+    let offsetX = (scaledWidth - CGFloat(targetWidth)) / 2
+    let offsetY = (scaledHeight - CGFloat(targetHeight)) / 2
+
+    guard let context = CGContext(
+      data: nil,
+      width: targetWidth,
+      height: targetHeight,
+      bitsPerComponent: 8,
+      bytesPerRow: targetWidth * 4,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+      return nil
+    }
+
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+    context.draw(sourceImage, in: CGRect(x: -offsetX, y: -offsetY, width: scaledWidth, height: scaledHeight))
+
+    return context.makeImage()
   }
 
   private func printProgress(_ progress: PrintProgress) {

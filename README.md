@@ -89,7 +89,8 @@ import InstaxKit
 
 // Automatically detect SP-1, SP-2, or SP-3
 let printer = try await InstaxKit.detectPrinter(host: "192.168.0.251")
-try await printer.print(imageAt: imageURL) { progress in
+
+try await printer.print(image: cgImage) { progress in
   print("\(progress.percentage)% - \(progress.message)")
 }
 ```
@@ -108,7 +109,7 @@ let printer = InstaxPrinter(model: .sp2)
 // SP-3 (800x800, square)
 let printer = InstaxPrinter(model: .sp3)
 
-try await printer.print(imageAt: imageURL) { progress in
+try await printer.print(image: cgImage) { progress in
   print("\(progress.percentage)% - \(progress.message)")
 }
 ```
@@ -162,28 +163,26 @@ struct PrintView: View {
 }
 ```
 
-### Print from CGImage
-
-```swift
-let printer = InstaxPrinter(model: .sp2)
-let cgImage: CGImage = // ... your image
-
-try await printer.print(image: cgImage) { progress in
-  print(progress.message)
-}
-```
-
 ### Image encoding only
 
 If you need to encode an image without printing:
 
 ```swift
 let encoder = InstaxImageEncoder(model: .sp2)
-let encodedData = try encoder.encode(from: imageURL)
+
+// Image must be exactly 600x800 for SP-2
+let encodedData = try encoder.encode(image: cgImage)
 
 // Later, print the pre-encoded data
 try await printer.print(encodedImage: encodedData) { _ in }
 ```
+
+**Important:** Images must be the exact size for the printer model:
+- SP-1: 480×640
+- SP-2: 600×800
+- SP-3: 800×800
+
+The encoder does not resize or crop - this must be done prior to calling `print`.
 
 ## Connecting to the Printer
 
@@ -196,9 +195,6 @@ try await printer.print(encodedImage: encodedData) { _ in }
 
 - Enable DHCP on your computer if you have a static IP configured
 - The printer auto-shutdowns after ~10 minutes of inactivity
-- SP-1 prints at 480x640 (uses JPEG encoding)
-- SP-2 prints at 600x800
-- SP-3 prints at 800x800 (square)
 
 ## Development
 
