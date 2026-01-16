@@ -155,11 +155,7 @@ actor MockServer {
   }
 
   private var modelName: String {
-    switch model {
-    case .sp1: "SP-1"
-    case .sp2: "SP-2"
-    case .sp3: "SP-3"
-    }
+    model.displayName
   }
 
   private func handlePacket(_ data: Data) async throws -> Data {

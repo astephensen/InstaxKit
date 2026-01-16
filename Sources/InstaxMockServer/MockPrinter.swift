@@ -28,11 +28,7 @@ public actor MockPrinter {
   }
 
   private var modelName: String {
-    switch model {
-    case .sp1: "SP-1"
-    case .sp2: "SP-2"
-    case .sp3: "SP-3"
-    }
+    model.displayName
   }
 
   /// Start the mock server.
@@ -310,7 +306,8 @@ public actor MockPrinter {
   }
 }
 
-enum MockServerError: Error {
+/// Mock server errors.
+public enum MockServerError: Error {
   case noData
   case invalidPacket
 }

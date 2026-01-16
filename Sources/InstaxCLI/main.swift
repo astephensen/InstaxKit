@@ -52,18 +52,10 @@ struct PrintCommand: AsyncParsableCommand {
     let printerInstance: InstaxPrinter
 
     if let printer, printer.lowercased() != "auto" {
-      let model: PrinterModel
-      switch printer.lowercased() {
-      case "sp1", "1":
-        model = .sp1
-      case "sp2", "2":
-        model = .sp2
-      case "sp3", "3":
-        model = .sp3
-      default:
+      guard let model = PrinterModel(fromInput: printer) else {
         throw ValidationError("Unknown printer model: \(printer). Use 'sp1', 'sp2', 'sp3', or 'auto'.")
       }
-      print("Printing to Instax \(printer.uppercased()) at \(host):\(port)")
+      print("Printing to Instax \(model.displayName) at \(host):\(port)")
       printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
     } else {
       print("Auto-detecting printer at \(host):\(port)...")
@@ -183,18 +175,10 @@ struct InfoCommand: AsyncParsableCommand {
     let printerInstance: InstaxPrinter
 
     if let printer, printer.lowercased() != "auto" {
-      let model: PrinterModel
-      switch printer.lowercased() {
-      case "sp1", "1":
-        model = .sp1
-      case "sp2", "2":
-        model = .sp2
-      case "sp3", "3":
-        model = .sp3
-      default:
+      guard let model = PrinterModel(fromInput: printer) else {
         throw ValidationError("Unknown printer model: \(printer). Use 'sp1', 'sp2', 'sp3', or 'auto'.")
       }
-      print("Connecting to Instax \(printer.uppercased()) at \(host):\(port)...")
+      print("Connecting to Instax \(model.displayName) at \(host):\(port)...")
       printerInstance = InstaxKit.printer(model: model, host: host, port: port, pinCode: pin)
     } else {
       print("Auto-detecting printer at \(host):\(port)...")

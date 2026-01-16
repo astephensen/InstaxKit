@@ -65,10 +65,29 @@ public enum PrintStage: Sendable {
 }
 
 /// Printer model types.
-public enum PrinterModel: Sendable {
+public enum PrinterModel: String, Sendable, CaseIterable {
   case sp1
   case sp2
   case sp3
+
+  /// Initialize from user input string (e.g., "sp1", "SP-2", "3")
+  public init?(fromInput input: String) {
+    let normalized = input.lowercased().replacingOccurrences(of: "-", with: "")
+    switch normalized {
+    case "sp1", "1": self = .sp1
+    case "sp2", "2": self = .sp2
+    case "sp3", "3": self = .sp3
+    default: return nil
+    }
+  }
+
+  public var displayName: String {
+    switch self {
+    case .sp1: "SP-1"
+    case .sp2: "SP-2"
+    case .sp3: "SP-3"
+    }
+  }
 
   public var imageWidth: Int {
     switch self {
@@ -87,13 +106,7 @@ public enum PrinterModel: Sendable {
   }
 
   public var totalImageBytes: Int {
-    switch self {
-    case .sp1:
-      // SP-1 uses JPEG encoding, size varies
-      imageWidth * imageHeight * 3
-    case .sp2, .sp3:
-      imageWidth * imageHeight * 3
-    }
+    imageWidth * imageHeight * 3
   }
 
   public var segmentSize: Int {
@@ -104,7 +117,6 @@ public enum PrinterModel: Sendable {
   }
 
   public var segmentCount: Int {
-    // Approximate - actual count depends on encoded image size
     totalImageBytes / segmentSize
   }
 }

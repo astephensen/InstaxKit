@@ -15,10 +15,7 @@ public actor SocketConnection {
 
   /// Connect to the printer.
   public func connect(timeout: TimeInterval = 10) async throws {
-    debugLog("Connecting to \(host):\(port) with timeout \(timeout)s")
-
     guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-      debugLog("Invalid port: \(port)")
       throw ConnectionError.connectionFailed("Invalid port: \(port)")
     }
 
@@ -38,19 +35,10 @@ public actor SocketConnection {
 
       @Sendable func complete(with result: Result<Void, Error>) {
         guard completionState.tryComplete() else { return }
-
-        switch result {
-        case .success:
-          debugLog("Connection established successfully")
-          continuation.resume()
-        case let .failure(error):
-          debugLog("Connection failed: \(error)")
-          continuation.resume(throwing: error)
-        }
+        continuation.resume(with: result)
       }
 
       connection.stateUpdateHandler = { state in
-        debugLog("Connection state changed: \(state)")
         switch state {
         case .ready:
           complete(with: .success(()))
@@ -58,15 +46,12 @@ public actor SocketConnection {
           complete(with: .failure(ConnectionError.connectionFailed(error.localizedDescription)))
         case .cancelled:
           complete(with: .failure(ConnectionError.cancelled))
-        case let .waiting(error):
-          debugLog("Connection waiting: \(error)")
         default:
           break
         }
       }
 
       connection.start(queue: self.queue)
-      debugLog("Connection started, waiting for ready state...")
 
       // Timeout
       Task {
@@ -80,7 +65,6 @@ public actor SocketConnection {
   /// Send data to the printer.
   public func send(_ data: Data) async throws {
     guard let connection else {
-      debugLog("Send failed: not connected")
       throw ConnectionError.notConnected
     }
 
@@ -89,10 +73,8 @@ public actor SocketConnection {
     return try await withCheckedThrowingContinuation { continuation in
       connection.send(content: data, completion: .contentProcessed { error in
         if let error {
-          debugLog("Send error: \(error)")
           continuation.resume(throwing: ConnectionError.sendFailed(error.localizedDescription))
         } else {
-          debugLog("Sent \(data.count) bytes successfully")
           continuation.resume()
         }
       })
@@ -102,27 +84,19 @@ public actor SocketConnection {
   /// Receive data from the printer.
   public func receive(timeout: TimeInterval = 5) async throws -> Data {
     guard let connection else {
-      debugLog("Receive failed: not connected")
       throw ConnectionError.notConnected
     }
 
-    debugLog("Waiting to receive header (4 bytes)...")
-
     // First, read the header to get the packet length
     let headerData = try await receiveExact(4, from: connection, timeout: timeout)
-    debugLog("Received header: \(headerData.map { String(format: "%02X", $0) }.joined(separator: " "))")
-
     let packetLength = Int((UInt16(headerData[2]) << 8) | UInt16(headerData[3]))
-    debugLog("Packet length from header: \(packetLength)")
 
     // Read the rest of the packet
     let remainingLength = packetLength - 4
     guard remainingLength > 0 else {
-      debugLog("No remaining data to read")
       return headerData
     }
 
-    debugLog("Reading remaining \(remainingLength) bytes...")
     let remainingData = try await receiveExact(remainingLength, from: connection, timeout: timeout)
     let fullPacket = headerData + remainingData
 
@@ -136,20 +110,10 @@ public actor SocketConnection {
 
       @Sendable func complete(with result: Result<Data, Error>) {
         guard completionState.tryComplete() else { return }
-
-        switch result {
-        case let .success(data):
-          continuation.resume(returning: data)
-        case let .failure(error):
-          continuation.resume(throwing: error)
-        }
+        continuation.resume(with: result)
       }
 
-      connection.receive(minimumIncompleteLength: length, maximumLength: length) { data, _, isComplete, error in
-        debugLog(
-          "Receive callback: data=\(data?.count ?? 0) bytes, complete=\(isComplete), error=\(String(describing: error))"
-        )
-
+      connection.receive(minimumIncompleteLength: length, maximumLength: length) { data, _, _, error in
         if let error {
           complete(with: .failure(ConnectionError.receiveFailed(error.localizedDescription)))
         } else if let data, data.count >= length {
@@ -164,7 +128,6 @@ public actor SocketConnection {
       // Timeout
       Task {
         try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-        debugLog("Receive timeout after \(timeout)s")
         complete(with: .failure(ConnectionError.timeout))
       }
     }
@@ -172,7 +135,6 @@ public actor SocketConnection {
 
   /// Close the connection.
   public func close() {
-    debugLog("Closing connection")
     if let connection {
       switch connection.state {
       case .cancelled, .failed:

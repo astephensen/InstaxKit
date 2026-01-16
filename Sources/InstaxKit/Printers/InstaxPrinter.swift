@@ -78,11 +78,8 @@ final class InstaxPrinterBase: @unchecked Sendable {
 
   func sendCommand(type: PacketType, payload: Data = Data()) async throws -> DecodedPacket {
     guard let connection else {
-      debugLog("sendCommand failed: not connected")
       throw ConnectionError.notConnected
     }
-
-    debugLog("Sending command: \(type)")
 
     let commandData = encoder.encodeCommand(
       type: type,
@@ -93,17 +90,7 @@ final class InstaxPrinterBase: @unchecked Sendable {
 
     try await connection.send(commandData)
     let responseData = try await connection.receive()
-
-    do {
-      let decoded = try decoder.decode(responseData)
-      debugLog(
-        "Response: type=\(decoded.header.type), returnCode=\(decoded.header.returnCode?.description ?? "nil"), battery=\(decoded.header.battery), prints=\(decoded.header.printsRemaining)"
-      )
-      return decoded
-    } catch {
-      debugLog("Failed to decode response: \(error)")
-      throw error
-    }
+    return try decoder.decode(responseData)
   }
 
   func getPrinterVersion() async throws -> DecodedPacket {
@@ -159,36 +146,23 @@ final class InstaxPrinterBase: @unchecked Sendable {
   }
 
   func getInfo() async throws -> PrinterInfo {
-    debugLog("getInfo() called")
-    debugLog("Attempting to connect...")
-
+    debugLog("Getting printer info...")
     try await connect()
-    debugLog("Connected successfully")
 
     defer {
-      debugLog("Closing connection in defer")
       Task { await close() }
     }
 
-    debugLog("Getting printer version...")
     let version = try await getPrinterVersion()
-
-    debugLog("Getting model name...")
     let modelName = try await getModelName()
-
-    debugLog("Getting specifications...")
     let specs = try await getSpecifications()
-
-    debugLog("Getting print count...")
     let printCount = try await getPrintCount()
 
-    debugLog("Decoding payloads...")
     let versionPayload = try version.decodePayload(VersionPayload.self)
     let modelPayload = try modelName.decodePayload(ModelNamePayload.self)
     let specsPayload = try specs.decodePayload(SpecificationsPayload.self)
     let countPayload = try printCount.decodePayload(PrintCountPayload.self)
 
-    debugLog("Building PrinterInfo...")
     return PrinterInfo(
       modelName: modelPayload.modelName,
       firmware: versionPayload.firmware,
@@ -274,9 +248,7 @@ final class InstaxPrinterBase: @unchecked Sendable {
         throw PrintError.timeout
       }
     } catch is ConnectionError {
-      // Connection errors after print initiation are normal - the printer is busy
-      // printing and may not accept connections until done. Treat as success.
-      debugLog("Connection issue during post-print phase (normal behavior)")
+      // Connection errors after print initiation are normal - printer is busy printing
       await close()
     }
 
@@ -291,9 +263,7 @@ final class InstaxPrinterBase: @unchecked Sendable {
           return true
         }
       } catch {
-        // Connection errors during polling are normal - the printer often closes
-        // the connection when printing is complete. Treat this as success.
-        debugLog("Connection closed during print status polling (normal behavior): \(error)")
+        // Connection errors during polling are normal - printer closes connection when done
         return true
       }
       try await Task.sleep(nanoseconds: 1_000_000_000)

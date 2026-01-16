@@ -22,21 +22,13 @@ struct MockServerCLI: AsyncParsableCommand {
   var model: String = "sp2"
 
   func run() async throws {
-    let printerModel: PrinterModel
-    switch model.lowercased() {
-    case "sp1", "1":
-      printerModel = .sp1
-    case "sp2", "2":
-      printerModel = .sp2
-    case "sp3", "3":
-      printerModel = .sp3
-    default:
+    guard let printerModel = PrinterModel(fromInput: model) else {
       throw ValidationError("Unknown printer model: \(model). Use 'sp1', 'sp2', or 'sp3'.")
     }
 
     print("Starting mock Instax printer...")
     print("  Port:     \(port)")
-    print("  Model:    \(printerModel)")
+    print("  Model:    \(printerModel.displayName)")
     print("  Battery:  \(battery)/7")
     print("  Prints:   \(prints)")
     print()
