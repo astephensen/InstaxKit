@@ -21,8 +21,8 @@ let package = Package(
       targets: ["InstaxMockServer"]
     ),
     .executable(
-      name: "OpenInstaxServer",
-      targets: ["OpenInstaxServer"]
+      name: "InstaxKitServer",
+      targets: ["InstaxKitServer"]
     ),
   ],
   dependencies: [
@@ -48,7 +48,7 @@ let package = Package(
       ]
     ),
     .executableTarget(
-      name: "OpenInstaxServer",
+      name: "InstaxKitServer",
       dependencies: ["InstaxKit"]
     ),
     .testTarget(

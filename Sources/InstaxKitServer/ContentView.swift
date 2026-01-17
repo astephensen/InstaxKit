@@ -29,7 +29,7 @@ struct ControlsSidebar: View {
     VStack(alignment: .leading, spacing: 24) {
       // Header
       VStack(alignment: .leading, spacing: 4) {
-        Text("OpenInstax Server")
+        Text("InstaxKit Server")
           .font(.headline)
         Text("Mock Printer Simulator")
           .font(.subheadline)

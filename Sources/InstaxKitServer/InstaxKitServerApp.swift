@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct OpenInstaxServerApp: App {
+struct InstaxKitServerApp: App {
   @StateObject private var viewModel = ServerViewModel()
 
   var body: some Scene {

@@ -15,7 +15,7 @@ actor MockServer {
 
   private var listener: NWListener?
   private var connections: [NWConnection] = []
-  private let queue = DispatchQueue(label: "com.openinstax.mockserver")
+  private let queue = DispatchQueue(label: "com.instaxkit.mockserver")
 
   private let encoder = PacketEncoder()
   private let decoder = PacketDecoder()
