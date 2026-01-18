@@ -14,7 +14,7 @@ public actor SocketConnection {
   }
 
   /// Connect to the printer.
-  public func connect(timeout: TimeInterval = 10) async throws {
+  public func connect(timeout: TimeInterval = 5) async throws {
     guard let nwPort = NWEndpoint.Port(rawValue: port) else {
       throw ConnectionError.connectionFailed("Invalid port: \(port)")
     }

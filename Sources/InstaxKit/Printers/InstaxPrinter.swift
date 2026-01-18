@@ -7,16 +7,30 @@ public actor InstaxPrinter {
   public let host: String
   public let port: UInt16
   public let pinCode: UInt16
+  public let connectionTimeout: TimeInterval
 
   private let base: InstaxPrinterBase
   private let imageEncoder: InstaxImageEncoder
 
-  public init(model: PrinterModel, host: String = "192.168.0.251", port: UInt16 = 8080, pinCode: UInt16 = 1111) {
+  public init(
+    model: PrinterModel,
+    host: String = "192.168.0.251",
+    port: UInt16 = 8080,
+    pinCode: UInt16 = 1111,
+    connectionTimeout: TimeInterval = 5
+  ) {
     self.model = model
     self.host = host
     self.port = port
     self.pinCode = pinCode
-    base = InstaxPrinterBase(model: model, host: host, port: port, pinCode: pinCode)
+    self.connectionTimeout = connectionTimeout
+    base = InstaxPrinterBase(
+      model: model,
+      host: host,
+      port: port,
+      pinCode: pinCode,
+      connectionTimeout: connectionTimeout
+    )
     imageEncoder = InstaxImageEncoder(model: model)
   }
 
@@ -49,25 +63,27 @@ final class InstaxPrinterBase: @unchecked Sendable {
   let host: String
   let port: UInt16
   let pinCode: UInt16
+  let connectionTimeout: TimeInterval
 
   private let encoder = PacketEncoder()
   private let decoder = PacketDecoder()
   private var connection: SocketConnection?
   private var sessionTime: UInt32
 
-  init(model: PrinterModel, host: String, port: UInt16, pinCode: UInt16) {
+  init(model: PrinterModel, host: String, port: UInt16, pinCode: UInt16, connectionTimeout: TimeInterval = 5) {
     self.model = model
     self.host = host
     self.port = port
     self.pinCode = pinCode
+    self.connectionTimeout = connectionTimeout
     // Truncate to UInt32 range (the & 0xFFFFFFFF must happen before conversion)
     let timeMs = UInt64(Date().timeIntervalSince1970 * 1000)
     sessionTime = UInt32(timeMs & 0xFFFF_FFFF)
   }
 
-  func connect(timeout: TimeInterval = 10) async throws {
+  func connect() async throws {
     let conn = SocketConnection(host: host, port: port)
-    try await conn.connect(timeout: timeout)
+    try await conn.connect(timeout: connectionTimeout)
     connection = conn
   }
 
